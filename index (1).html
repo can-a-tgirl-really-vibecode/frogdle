@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FROGDLE 🐸</title>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@latest/output/index.min.js"></script>
   <style>
     :root {
       --bg: #0d1f0f;
@@ -770,14 +771,30 @@
     return `${header}\n${rows}\nhttps://yourname.github.io/frogdle`;
   }
 
-  function share() {
-    const text = buildShareText();
-    if (navigator.share) {
-      navigator.share({ text }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!'));
-    }
+let discordSdk = null;
+
+async function initDiscord() {
+  if (typeof DiscordSDK === 'undefined') return;
+  discordSdk = new DiscordSDK('1512603664404189385');
+  await discordSdk.ready();
+}
+
+async function share() {
+  const text = buildShareText();
+  if (discordSdk) {
+    // Post result directly to the Discord channel
+    await discordSdk.commands.openShareMomentDialog({ mediaUrl: null });
+    // Fallback: copy to clipboard so they can paste
+    navigator.clipboard.writeText(text).then(() => showToast('Copied! Paste in chat 🐸'));
+  } else if (navigator.share) {
+    navigator.share({ text }).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!'));
   }
+}
+
+// Call this at the bottom of init()
+initDiscord();
 
   function restoreCompletedGame(saved) {
     // Rebuild grid tiles from saved state
