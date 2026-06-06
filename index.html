@@ -8,24 +8,35 @@
   let VALID_WORDS = new Set();
   let wordsLoaded = false;
 
+  // ---------------- WORD LOADING (SAFE) ----------------
   async function loadWords() {
-    const res = await fetch(
-      "https://gist.githubusercontent.com/dracos/dd0668f281e685bad51479e5acaadb93/raw/6bfa15d263d6d5b63840a8e5b64e04b382fdb079/valid-wordle-words.txt"
-    );
+    try {
+      const res = await fetch(
+        "https://gist.githubusercontent.com/dracos/dd0668f281e685bad51479e5acaadb93/raw/6bfa15d263d6d5b63840a8e5b64e04b382fdb079/valid-wordle-words.txt"
+      );
 
-    const text = await res.text();
+      const text = await res.text();
 
-    VALID_WORDS = new Set(
-      text
-        .split("\n")
-        .map(w => w.trim().toUpperCase())
-        .filter(w => w.length === WORD_LENGTH)
-    );
+      VALID_WORDS = new Set(
+        text
+          .split("\n")
+          .map(w => w.trim().toUpperCase())
+          .filter(w => w.length === WORD_LENGTH)
+      );
 
-    wordsLoaded = true;
-    console.log("Loaded words:", VALID_WORDS.size);
+      wordsLoaded = true;
+      console.log("Loaded words:", VALID_WORDS.size);
+
+    } catch (err) {
+      console.warn("Word list failed to load, using fallback", err);
+
+      // fallback so game NEVER breaks
+      VALID_WORDS = new Set(["FROGS", "ABOUT", "OTHER", "WORDS"]);
+      wordsLoaded = true;
+    }
   }
 
+  // ---------------- GAME STATE ----------------
   const urlParams = new URLSearchParams(window.location.search);
   const guildId = urlParams.get('guild');
   const userId = urlParams.get('user');
@@ -55,6 +66,7 @@
     }));
   }
 
+  // ---------------- UI BUILD ----------------
   function buildGrid() {
     const grid = document.getElementById('grid');
     grid.innerHTML = '';
@@ -102,19 +114,9 @@
     });
   }
 
-  function updateCurrentRow() {
-    const row = guesses.length;
-
-    for (let c = 0; c < WORD_LENGTH; c++) {
-      const tile = document.getElementById(`tile-${row}-${c}`);
-      const letter = currentGuess[c] || '';
-      tile.textContent = letter;
-      tile.className = 'tile' + (letter ? ' filled' : '');
-    }
-  }
-
+  // ---------------- INPUT ----------------
   function handleKey(key) {
-    if (gameOver || !wordsLoaded) return;
+    if (gameOver) return;
 
     if (key === '⌫' || key === 'Backspace') {
       currentGuess = currentGuess.slice(0, -1);
@@ -131,89 +133,20 @@
     }
   }
 
-  function showToast(msg, duration = 1400) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), duration);
-  }
+  function updateCurrentRow() {
+    const row = guesses.length;
 
-  function evaluateGuess(guess) {
-    const result = Array(WORD_LENGTH).fill('absent');
-    const answerArr = ANSWER.split('');
-    const guessArr = guess.split('');
-    const used = Array(WORD_LENGTH).fill(false);
+    for (let c = 0; c < WORD_LENGTH; c++) {
+      const tile = document.getElementById(`tile-${row}-${c}`);
+      if (!tile) continue;
 
-    for (let i = 0; i < WORD_LENGTH; i++) {
-      if (guessArr[i] === answerArr[i]) {
-        result[i] = 'correct';
-        used[i] = true;
-      }
-    }
-
-    for (let i = 0; i < WORD_LENGTH; i++) {
-      if (result[i] === 'correct') continue;
-
-      for (let j = 0; j < WORD_LENGTH; j++) {
-        if (!used[j] && guessArr[i] === answerArr[j]) {
-          result[i] = 'present';
-          used[j] = true;
-          break;
-        }
-      }
-    }
-
-    return result;
-  }
-
-  function animateRow(row, states, callback) {
-    const tiles = document.querySelectorAll(`#row-${row} .tile`);
-
-    tiles.forEach((tile, i) => {
-      setTimeout(() => {
-        tile.classList.add('flip');
-
-        setTimeout(() => {
-          tile.classList.remove('flip');
-          tile.classList.add(states[i]);
-        }, 250);
-
-      }, i * 120);
-    });
-
-    setTimeout(callback, WORD_LENGTH * 120 + 300);
-  }
-
-  function updateKeyboard(guess, states) {
-    const priority = { correct: 3, present: 2, absent: 1 };
-    const keyMap = {};
-
-    for (let i = 0; i < WORD_LENGTH; i++) {
-      const k = guess[i];
-      const s = states[i];
-
-      if (!keyMap[k] || priority[s] > priority[keyMap[k]]) {
-        keyMap[k] = s;
-      }
-    }
-
-    for (const [k, s] of Object.entries(keyMap)) {
-      const btn = document.querySelector(`.key[data-key="${k}"]`);
-      if (btn && !btn.classList.contains('correct')) {
-        btn.classList.remove('correct', 'present', 'absent');
-        btn.classList.add(s);
-      }
+      const letter = currentGuess[c] || '';
+      tile.textContent = letter;
+      tile.className = 'tile' + (letter ? ' filled' : '');
     }
   }
 
-  function shakeRow(row) {
-    const tiles = document.querySelectorAll(`#row-${row} .tile`);
-    tiles.forEach(t => {
-      t.classList.add('shake');
-      setTimeout(() => t.classList.remove('shake'), 400);
-    });
-  }
-
+  // ---------------- WORD CHECK ----------------
   function submitGuess() {
     if (!wordsLoaded) {
       showToast("Loading words...");
@@ -249,12 +182,12 @@
       if (won) {
         gameOver = true;
         saveState(true);
-        setTimeout(() => showEndCard(true), 600);
+        showEndCard(true);
 
       } else if (guesses.length === MAX_GUESSES) {
         gameOver = true;
         saveState(false);
-        setTimeout(() => showEndCard(false), 400);
+        showEndCard(false);
 
       } else {
         currentGuess = '';
@@ -263,11 +196,116 @@
     });
   }
 
+  // ---------------- LOGIC ----------------
+  function evaluateGuess(guess) {
+    const result = Array(WORD_LENGTH).fill('absent');
+    const answerArr = ANSWER.split('');
+    const guessArr = guess.split('');
+    const used = Array(WORD_LENGTH).fill(false);
+
+    for (let i = 0; i < WORD_LENGTH; i++) {
+      if (guessArr[i] === answerArr[i]) {
+        result[i] = 'correct';
+        used[i] = true;
+      }
+    }
+
+    for (let i = 0; i < WORD_LENGTH; i++) {
+      if (result[i] === 'correct') continue;
+
+      for (let j = 0; j < WORD_LENGTH; j++) {
+        if (!used[j] && guessArr[i] === answerArr[j]) {
+          result[i] = 'present';
+          used[j] = true;
+          break;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  // ---------------- ANIMATION ----------------
+  function animateRow(row, states, callback) {
+    const tiles = document.querySelectorAll(`#row-${row} .tile`);
+
+    tiles.forEach((tile, i) => {
+      setTimeout(() => {
+        tile.classList.add('flip');
+
+        setTimeout(() => {
+          tile.classList.remove('flip');
+          tile.classList.add(states[i]);
+        }, 250);
+
+      }, i * 120);
+    });
+
+    setTimeout(callback, WORD_LENGTH * 120 + 300);
+  }
+
+  function shakeRow(row) {
+    const tiles = document.querySelectorAll(`#row-${row} .tile`);
+    tiles.forEach(t => {
+      t.classList.add('shake');
+      setTimeout(() => t.classList.remove('shake'), 400);
+    });
+  }
+
+  function updateKeyboard(guess, states) {
+    const priority = { correct: 3, present: 2, absent: 1 };
+    const keyMap = {};
+
+    for (let i = 0; i < WORD_LENGTH; i++) {
+      const k = guess[i];
+      const s = states[i];
+      if (!keyMap[k] || priority[s] > priority[keyMap[k]]) {
+        keyMap[k] = s;
+      }
+    }
+
+    for (const [k, s] of Object.entries(keyMap)) {
+      const btn = document.querySelector(`.key[data-key="${k}"]`);
+      if (btn && !btn.classList.contains('correct')) {
+        btn.classList.remove('correct', 'present', 'absent');
+        btn.classList.add(s);
+      }
+    }
+  }
+
+  // ---------------- UI HELPERS ----------------
+  function showToast(msg, duration = 1400) {
+    const t = document.getElementById('toast');
+    if (!t) return;
+
+    t.textContent = msg;
+    t.classList.add('show');
+
+    setTimeout(() => t.classList.remove('show'), duration);
+  }
+
   function showEndCard(won) {
     const card = document.getElementById('end-card');
+    if (!card) return;
+
     card.classList.add('visible');
   }
 
+  function restoreCompletedGame(saved) {
+    if (!saved.tileStates) return;
+
+    saved.tileStates.forEach((gRow, row) => {
+      gRow.forEach(({ letter, state }, col) => {
+        const tile = document.getElementById(`tile-${row}-${col}`);
+        if (!tile) return;
+
+        tile.textContent = letter;
+        tile.className = `tile ${state}`;
+      });
+    });
+  }
+
+  // ---------------- INIT (SAFE) ----------------
   async function init() {
     buildGrid();
     buildKeyboard();
@@ -286,13 +324,7 @@
       gameOver = true;
 
       restoreCompletedGame(saved);
-
-      setTimeout(() => {
-        const ap = document.getElementById('already-played');
-        ap.classList.add('visible');
-        startCountdown('ap-countdown');
-        showEndCard(saved.won);
-      }, 200);
+      showEndCard(saved.won);
     }
 
     document.addEventListener('keydown', e => {
